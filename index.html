@@ -267,6 +267,7 @@ function card(label,val,note,c){return `<div class="card ${c||'n'}"><div class="
 function mkChart(id,cfg){const el=document.getElementById(id);if(!el)return;if(charts[id])charts[id].destroy();charts[id]=new Chart(el,cfg)}
 
 function renderMonthSection(){
+  if(!MS)MS=master();
   document.getElementById('tabs').innerHTML=DAILY_MONTHS.map(m=>`<div class="tab ${m===curM?'on':''}" onclick="curM=${m};renderMonthSection();renderInsights()">T${m}</div>`).join('');
   const {tgt,s,cum,days}=dailyData(curM);
   const {tp,el,nd}=timeProgress(curM);
@@ -278,8 +279,16 @@ function renderMonthSection(){
     +card('DT Store',fmtM(s.store),pctf(pST)+' target · '+lbl(pace(pST)),cls(pace(pST)))
     +card('AOV FB',aovFB?fmt(aovFB/1000)+'K':'–','target ≥'+fmt(tgt.aovFB/1000)+'K',aovFB==null?'n':aovFB>=tgt.aovFB?'g':'r')
     +card('AOV Store',aovST?fmt(aovST/1000)+'K':'–','target ≥'+fmt(tgt.aovST/1000)+'K',aovST==null?'n':aovST>=tgt.aovST?'g':'r')
-    +card('Tin nhắn (CMT+IB)',s.cmt>0?fmt(s.cmt):'–',s.cmt>0?'lũy kế tháng':'chưa nhập CMT+IB','n')
-    +card('CR% FB',s.cmt>0?pctf(s.donFB/s.cmt):'–',s.cmt>0?fmt(s.donFB)+' đơn / '+fmt(s.cmt)+' tin':'= Đơn FB ÷ CMT+IB','n')
+    +(()=>{ // CMT+IB & CR lấy từ MASTER (số chốt tháng) — không dựa daily
+      const {labels:ml,get:mg}=MS;
+      const cmtS=mg('FB','CMT + Inbox'), donS=mg('FB','Đơn hàng FB');
+      let mi=ml.indexOf('T'+curM+'/26');
+      if(mi<0||cmtS[mi]==null||cmtS[mi]===0){mi=-1;for(let i=cmtS.length-1;i>=0;i--)if(cmtS[i]!=null&&cmtS[i]!==0){mi=i;break}}
+      const cmtV=mi>=0?cmtS[mi]:null, donV=mi>=0?donS[mi]:null, crV=cmtV&&donV?donV/cmtV:null;
+      const src=mi>=0?('MASTER '+ml[mi]):'chưa có số MASTER';
+      return card('Tin nhắn (CMT+IB)',cmtV?fmt(cmtV):'–',src,'n')
+        +card('CR% FB',pctf(crV),crV?fmt(donV)+' đơn / '+fmt(cmtV)+' tin · '+src:'= Đơn FB ÷ CMT+IB · '+src,'n');
+    })()
     +card('DT O3',fmtM(s.o3),s.total?pctf(s.o3/s.total)+' DT tổng':'','n');
   if(s.ads>0)html+=card('ROAS',(s.fb/s.ads).toFixed(1)+'x','CP Ads '+fmtM(s.ads),'n');
   html+=card('Thời gian',pctf(tp),'Ngày '+el+'/'+nd,'n');
