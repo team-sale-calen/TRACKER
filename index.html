@@ -217,20 +217,26 @@ function dailyData(m){
   s.store=s.ndc+s.ph+s.ngt;s.total=s.fb+s.store;
   return {tgt,s,cum,days};
 }
-// Tổng hợp tuần: TỰ TÍNH từ dữ liệu daily (không phụ thuộc sheet TUẦN)
+// Tổng hợp tuần: TỰ TÍNH từ daily, theo TUẦN LỊCH Thứ 2 → CN.
+// Tuần vắt sang tháng khác chỉ tính phần ngày NẰM TRONG tháng này;
+// target tuần = target tháng × (số ngày của tuần trong tháng ÷ tổng ngày tháng).
 function weeklyCalc(m,tgt,days,nd,el){
-  const ranges=[[1,7],[8,14],[15,21],[22,28],[29,nd]].filter(([a])=>a<=nd);
+  const ranges=[];let a=1;
+  while(a<=nd){
+    const dow=new Date(YEAR,m-1,a).getDay();      // 0=CN, 1=T2...
+    const b=Math.min(a+(dow===0?0:7-dow),nd);     // chạy tới CN gần nhất hoặc hết tháng
+    ranges.push([a,b]);a=b+1;
+  }
   return ranges.map(([a,b],i)=>{
-    b=Math.min(b,nd);
     const slice=days.slice(a-1,b);
-    const w={label:'Tuần '+(i+1),range:a+'/'+m+'–'+b+'/'+m,fb:0,donFB:0,st:0};
+    const w={label:'Tuần '+(i+1),range:a+'/'+m+'–'+b+'/'+m+' ('+(b-a+1)+' ngày)',fb:0,donFB:0,st:0};
     slice.forEach(d=>{w.fb+=d.fb;w.donFB+=d.donFB;w.st+=d.st});
     w.tot=w.fb+w.st;
-    const share=(b-a+1)/nd;                       // target tuần theo tỷ trọng số ngày
+    const share=(b-a+1)/nd;
     w.ptFB=tgt.fb>0?w.fb/(tgt.fb*share):null;
     w.ptST=tgt.store>0?w.st/(tgt.store*share):null;
     w.aovFB=w.donFB>0?w.fb/w.donFB:null;
-    w.started=a<=el;                              // tuần đã bắt đầu chưa (theo ngày đã qua)
+    w.started=a<=el;
     return w;
   });
 }
