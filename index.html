@@ -84,6 +84,11 @@ select{padding:6px 10px;border:1px solid var(--line);border-radius:8px;font-size
   <div class="cards" id="health"></div>
   <div class="panel" style="margin-top:12px"><h3>💬 Nhận xét & dự đoán sức khỏe KH</h3><ul id="healthNote" style="margin-left:18px;font-size:13px;line-height:1.7"></ul></div>
 
+  <div class="sechead"><h2>👥 Khách hàng mới & Khách hàng cũ — theo kênh · <span id="seglabel"></span></h2></div>
+  <div class="cards" id="segCards"></div>
+  <div class="grid2" id="segGrid"></div>
+  <div class="panel" style="margin-top:12px"><h3>💬 Nhận xét & dự đoán KH mới/cũ</h3><ul id="segNote" style="margin-left:18px;font-size:13px;line-height:1.7"></ul></div>
+
   <div class="sechead"><h2>📈 Xu hướng dài hạn</h2></div>
   <div class="grid2" id="trendGrid"></div>
   <div class="panel" style="margin-top:12px"><h3>💬 Nhận xét xu hướng & dự đoán doanh thu</h3><ul id="trendNote" style="margin-left:18px;font-size:13px;line-height:1.7"></ul></div>
@@ -298,13 +303,13 @@ function behavior(){
 }
 
 /* ---------- render ---------- */
-function renderAll(){renderMonthSection();renderHealth();renderInsights();renderTrends();renderDetail();bhTabs();renderBehavior();}
+function renderAll(){renderMonthSection();renderHealth();renderSegments();renderInsights();renderTrends();renderDetail();bhTabs();renderBehavior();}
 function card(label,val,note,c){return `<div class="card ${c||'n'}"><div class="lbl">${label}</div><div class="val">${val}</div><div class="note">${note||''}</div></div>`}
 function mkChart(id,cfg){const el=document.getElementById(id);if(!el)return;if(charts[id])charts[id].destroy();charts[id]=new Chart(el,cfg)}
 
 function renderMonthSection(){
   if(!MS)MS=master();
-  document.getElementById('tabs').innerHTML=DAILY_MONTHS.map(m=>`<div class="tab ${m===curM?'on':''}" onclick="curM=${m};renderMonthSection();renderInsights();renderHealth();renderDetail()">T${m}</div>`).join('');
+  document.getElementById('tabs').innerHTML=DAILY_MONTHS.map(m=>`<div class="tab ${m===curM?'on':''}" onclick="curM=${m};renderMonthSection();renderInsights();renderHealth();renderSegments();renderDetail()">T${m}</div>`).join('');
   const {tgt,s,cum,days}=dailyData(curM);
   const {tp,el,nd}=timeProgress(curM);
   const pc=(a,t)=>t>0?a/t:null, pace=x=>x==null||tp<=0?null:x/tp;
@@ -363,7 +368,7 @@ function healthCard(label,ser,f,good,cum){
   if(cur==null&&prev==null)return '';
   const [dm,cm]=deltaTxt(cur,prev,good);
   const [dy,cy]=deltaTxt(cur,yoy,good);
-  const fv=v=>v==null?'–':f==='p'?pctf(v):f==='k'?fmt(v/1000)+'K':f==='d'?fmtD(v):fmt(v);
+  const fv=v=>v==null?'–':f==='p'?pctf(v):f==='k'?fmt(v/1000)+'K':f==='d'?fmtD(v):f==='m'?fmtM(v):fmt(v);
   const ap=run&&cum?'≈':'';
   return `<div class="card n"><div class="lbl">${label}</div><div class="val">${fv(cur)}</div>
     <div class="note">Tháng trước: <span class="delta ${cm}">${dm}</span> (${ap}${fv(prev)})</div>
@@ -385,6 +390,13 @@ function fcNext(ser){
   return v[v.length-1]+d/(v.length-1);
 }
 const arrow=ch=>ch>0.002?'▲ +'+(ch*100).toFixed(1)+'%':ch<-0.002?'▼ '+(ch*100).toFixed(1)+'%':'≈ đi ngang';
+/* dự đoán N tháng tới = giá trị cuối + N × delta trung bình (dùng cho forecast nhiều bước, vd cuối Quý) */
+function fcSteps(ser,steps){
+  const v=ser.slice(-4).filter(x=>x!=null);
+  if(v.length<2)return null;
+  let d=0;for(let i=1;i<v.length;i++)d+=v[i]-v[i-1];
+  return v[v.length-1]+d/(v.length-1)*steps;
+}
 function noteHealth(){
   // nhận xét xu hướng chỉ dùng các tháng đã khép sổ
   const labels=MS.labels.slice(0,MS.liDone+1);
@@ -430,6 +442,33 @@ function noteTrends(){
   const t90=(get('FB','↳ Mua lại >90')[li]||0)+(get('ST','↳ Mua lại >90')[li]||0);
   const tAll=t90+(get('FB','↳ Mua lại ≤30')[li]||0)+(get('ST','↳ Mua lại ≤30')[li]||0)+(get('FB','↳ Mua lại 31–90')[li]||0)+(get('ST','↳ Mua lại 31–90')[li]||0);
   if(tAll>0)out.push(`Trong KH quay lại, nhóm im lặng <b>>90 ngày chiếm ${pctf(t90/tAll)}</b> — ${t90/tAll>0.45?'vòng quay chậm, phần lớn khách để lâu mới quay lại → dư địa lớn cho nhắc mua sớm':'cơ cấu quay lại tương đối khỏe'}.`);
+  // --- Dự báo O3 cuối Quý 3/2026 (T9/26), tham chiếu tăng trưởng danh mục lens (HÀNH VI SP) ---
+  const lm=(labels[li]||'').match(/^T(\d{1,2})\/(\d{2})$/);
+  const nowReal=new Date();
+  if(lm&&nowReal.getFullYear()===2026&&(nowReal.getMonth()+1)>=7&&(nowReal.getMonth()+1)<=9){
+    // steps = số bước ngoại suy từ tháng KHÉP SỔ gần nhất (vd T6/26) tới T9/26
+    const closedMoNum=+lm[1];
+    const steps=9-closedMoNum;
+    if(steps>0){
+      const o3Pct=get('O3','% O3'), o3Rev=get('O3','DT O3');
+      const tO3=trend3(o3Pct), tO3r=trend3(o3Rev);
+      const anchorPct=o3Pct[li], anchorRev=o3Rev[li];
+      // chiếu tới T9 bằng nhịp tăng/giảm trung bình 3 tháng gần nhất (ổn định hơn dùng chênh lệch từng tháng lẻ)
+      const fcPct=(tO3&&anchorPct!=null)?anchorPct*(1+tO3.ch*steps/3):fcSteps(o3Pct,steps);
+      const fcRev=(tO3r&&anchorRev!=null)?anchorRev*(1+tO3r.ch*steps/3):fcSteps(o3Rev,steps);
+      const bh=behavior();
+      const nowD=new Date();
+      const cmB='T'+(nowD.getMonth()+1)+'/'+String(nowD.getFullYear()).slice(2);
+      const monthsB=bh.months.filter(m=>m!==cmB);
+      const lensTot=mo=>bh.rows.filter(r=>r.month===mo).reduce((s,r)=>s+r.v[0],0);
+      const l3=monthsB.slice(-3).map(lensTot), p3=monthsB.slice(-6,-3).map(lensTot);
+      const sum=a=>a.reduce((x,y)=>x+y,0);
+      const growB=(p3.length===3&&sum(p3)>0)?(sum(l3)-sum(p3))/sum(p3):null;
+      const TARGET_O3=0.03;
+      if(fcPct!=null)out.push(`🔮 Dự báo %O3 cuối Quý 3 (T9/26) ≈ <b>${pctf(Math.max(0,fcPct))}</b> (mục tiêu O2.KR3: 3%), ngoại suy từ xu hướng 3 tháng gần nhất${tO3?' ('+arrow(tO3.ch)+')':''}${growB!=null?`, ${growB*((tO3&&tO3.ch)||0)>=0?'cùng chiều':'ngược chiều'} với tăng trưởng danh mục lens ${arrow(growB)} trong giai đoạn này`:''} → ${fcPct>=TARGET_O3?'khả năng ĐẠT mục tiêu nếu giữ nhịp hiện tại.':'cần đẩy mạnh cross-sell tròng + mắt kính để về đích 3% cuối quý.'}`);
+      if(fcRev!=null)out.push(`Doanh thu O3 dự kiến T9/26 ≈ <b>${fmtM(Math.max(0,fcRev))}</b>.`);
+    }
+  }
   document.getElementById('trendNote').innerHTML=out.map(x=>'<li>'+x+'</li>').join('');
 }
 function renderHealth(){
@@ -448,6 +487,77 @@ function renderHealth(){
     +healthCard('Tần suất mua (ngày)',get('TOT','Tần suất mua TB'),'d',-1,false)
     +healthCard('Lần mua TB/KH',get('TOT','Số lần mua TB'),'d',1,false);
   noteHealth();
+}
+
+/* ---------- Khách hàng mới / cũ theo kênh ---------- */
+// Doanh thu từng phân khúc = SỐ LƯỢNG KH × AOV của phân khúc đó (MASTER không tách sẵn DT theo KH mới/cũ nên đây là ƯỚC TÍNH)
+function segData(){
+  const {labels,get}=MS;
+  const nFB=get('FB','KH mới FB'), nFBaov=get('FB','↳ AOV lần đầu FB');
+  const oFB=get('FB','KH cũ FB mua lại'), oFBaov=get('FB','↳ AOV KH cũ FB');
+  const nST=get('ST','KH mới Store'), nSTaov=get('ST','↳ AOV lần đầu Store');
+  const oST=get('ST','KH cũ Store mua lại'), oSTaov=get('ST','↳ AOV KH cũ Store');
+  const rev=(ct,aov)=>labels.map((_,i)=>ct[i]!=null&&aov[i]!=null?ct[i]*aov[i]:null);
+  const rNFB=rev(nFB,nFBaov), rOFB=rev(oFB,oFBaov), rNST=rev(nST,nSTaov), rOST=rev(oST,oSTaov);
+  const shareNew=(rn,ro)=>labels.map((_,i)=>{const n=rn[i],o=ro[i];return (n!=null&&o!=null&&(n+o)>0)?n/(n+o):null});
+  const rNTot=labels.map((_,i)=>(rNFB[i]!=null||rNST[i]!=null)?(rNFB[i]||0)+(rNST[i]||0):null);
+  const rOTot=labels.map((_,i)=>(rOFB[i]!=null||rOST[i]!=null)?(rOFB[i]||0)+(rOST[i]||0):null);
+  return {labels,nFB,oFB,nST,oST,rNFB,rOFB,rNST,rOST,
+    shNewFB:shareNew(rNFB,rOFB),shNewST:shareNew(rNST,rOST),rNTot,rOTot,shNewTot:shareNew(rNTot,rOTot)};
+}
+function renderSegments(){
+  const SD=segData();
+  document.getElementById('seglabel').textContent=SD.labels[VIEW.vi]+(VIEW.run?` — lũy kế ${VIEW.run.el} ngày (≈)`:'');
+  document.getElementById('segCards').innerHTML=
+    healthCard('KH mới FB (SL)',SD.nFB,'n',1,true)
+    +healthCard('KH cũ FB quay lại (SL)',SD.oFB,'n',1,true)
+    +healthCard('DT KH mới FB (ước tính)',SD.rNFB,'m',1,true)
+    +healthCard('DT KH cũ FB (ước tính)',SD.rOFB,'m',1,true)
+    +healthCard('KH mới Store (SL)',SD.nST,'n',1,true)
+    +healthCard('KH cũ Store quay lại (SL)',SD.oST,'n',1,true)
+    +healthCard('DT KH mới Store (ước tính)',SD.rNST,'m',1,true)
+    +healthCard('DT KH cũ Store (ước tính)',SD.rOST,'m',1,true)
+    +healthCard('% DT từ KH mới (toàn kênh)',SD.shNewTot,'p',-1,false);
+  // biểu đồ xu hướng — chỉ dùng các tháng đã khép sổ (tránh cột tụt do tháng chạy dở)
+  const cut=MS.liDone+1;
+  const labels=SD.labels.slice(0,cut);
+  document.getElementById('segGrid').innerHTML=
+    panel('segCount','Số lượng KH mới & KH cũ theo kênh')
+    +panel('segRev','Doanh thu KH mới & KH cũ theo kênh (ước tính = SL × AOV phân khúc)');
+  mkChart('segCount',{type:'bar',data:{labels,datasets:[
+    {label:'Mới FB',data:SD.nFB.slice(0,cut),backgroundColor:'#4472C4',stack:'fb'},
+    {label:'Cũ FB',data:SD.oFB.slice(0,cut),backgroundColor:'#9dc3e6',stack:'fb'},
+    {label:'Mới Store',data:SD.nST.slice(0,cut),backgroundColor:'#548235',stack:'st'},
+    {label:'Cũ Store',data:SD.oST.slice(0,cut),backgroundColor:'#a9d18e',stack:'st'}
+  ]},options:{plugins:{legend:{labels:{boxWidth:12}}},scales:{y:{beginAtZero:true}}}});
+  mkChart('segRev',{type:'bar',data:{labels,datasets:[
+    {label:'DT Mới FB',data:SD.rNFB.slice(0,cut),backgroundColor:'#4472C4',stack:'fb'},
+    {label:'DT Cũ FB',data:SD.rOFB.slice(0,cut),backgroundColor:'#9dc3e6',stack:'fb'},
+    {label:'DT Mới Store',data:SD.rNST.slice(0,cut),backgroundColor:'#548235',stack:'st'},
+    {label:'DT Cũ Store',data:SD.rOST.slice(0,cut),backgroundColor:'#a9d18e',stack:'st'}
+  ]},options:{plugins:{legend:{labels:{boxWidth:12}}},scales:{y:{ticks:{callback:v=>(v/1e6).toFixed(0)+' tr'}}}}});
+  noteSegments(SD,cut);
+}
+function noteSegments(SD,cut){
+  const labels=SD.labels.slice(0,cut);
+  const li=cut-1;
+  if(li<0){document.getElementById('segNote').innerHTML='<li>Chưa đủ dữ liệu để nhận xét.</li>';return}
+  const out=[];
+  const shT=SD.shNewTot.slice(0,cut), shFB=SD.shNewFB.slice(0,cut), shST=SD.shNewST.slice(0,cut);
+  if(shT[li]!=null)out.push(`Doanh thu từ KH <b>MỚI</b> đang chiếm <b>${pctf(shT[li])}</b> tổng doanh thu toàn kênh tại ${labels[li]} (KH cũ quay lại chiếm ${pctf(1-shT[li])}).`);
+  const t3=trend3(shT);
+  if(t3)out.push(`Tỷ trọng DT từ KH mới xu hướng 3 tháng: ${arrow(t3.ch)} (TB ${pctf(t3.mb)} → ${pctf(t3.ma)}).`);
+  if(shFB[li]!=null&&shST[li]!=null){
+    const diff=shFB[li]-shST[li];
+    out.push(`So kênh: FB phụ thuộc KH mới <b>${pctf(shFB[li])}</b>, Store <b>${pctf(shST[li])}</b> — ${Math.abs(diff)<0.02?'2 kênh khá tương đồng':diff>0?'FB phụ thuộc khách MỚI nhiều hơn Store, nên đẩy retention FB':'Store phụ thuộc khách MỚI nhiều hơn FB, nên đẩy retention Store'}.`);
+  }
+  const fcN=fcNext(SD.rNTot.slice(0,cut)), fcO=fcNext(SD.rOTot.slice(0,cut));
+  if(fcN!=null&&fcO!=null)out.push(`Dự đoán tháng tới: DT từ KH mới ≈ <b>${fmtM(Math.max(0,fcN))}</b>, DT từ KH cũ quay lại ≈ <b>${fmtM(Math.max(0,fcO))}</b>.`);
+  const nTot=labels.map((_,i)=>(SD.nFB[i]||0)+(SD.nST[i]||0));
+  const tN=trend3(nTot);
+  if(tN&&tN.ch<-0.03)out.push(`⚠️ Số lượng KH mới đang GIẢM (${arrow(tN.ch)} so 3 tháng trước) — cần rà soát hiệu quả thu hút khách mới ở cả 2 kênh.`);
+  else if(tN&&tN.ch>0.03)out.push(`✅ Số lượng KH mới đang TĂNG (${arrow(tN.ch)} so 3 tháng trước) — đà thu hút khách đang tốt.`);
+  document.getElementById('segNote').innerHTML=out.map(x=>'<li>'+x+'</li>').join('');
 }
 
 function panel(id,title){return `<div class="panel" id="p_${id}"><h3>${title}</h3><canvas id="${id}"></canvas></div>`}
