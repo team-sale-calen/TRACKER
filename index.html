@@ -69,7 +69,10 @@ select{padding:6px 10px;border:1px solid var(--line);border-radius:8px;font-size
     <span><span id="upd"></span> · <a onclick="location.reload()">↻ Tải lại</a> · <a onclick="document.getElementById('fi').click()">📁 Mở file khác</a></span>
   </div>
 
-  <div class="sechead"><h2>🎯 Tiến độ tháng</h2><div class="tabs" id="tabs"></div></div>
+  <div class="sechead"><h2>🎯 Tiến độ tháng</h2><div class="tabs" style="align-items:center">
+    <select id="selYear"></select><select id="selMonth"></select>
+  </div></div>
+  <div id="noDailyNote" class="hide" style="font-size:12px;color:var(--muted);margin:-4px 0 8px"></div>
   <div class="cards" id="cards"></div>
   <div class="grid2">
     <div class="panel wide"><h3>Lũy kế doanh thu vs nhịp target</h3><canvas id="chMonth" height="80"></canvas></div>
@@ -117,9 +120,9 @@ select{padding:6px 10px;border:1px solid var(--line);border-radius:8px;font-size
 </div>
 
 <script>
-const YEAR=2026, DAILY_MONTHS=[6,7,8,9];
-const REQ=['📊 MASTER','HÀNH VI SP'].concat(DAILY_MONTHS.map(m=>'📅 DAILY T'+m));
-let G={}, curM=null, charts={}, bhSec='FB';
+const YEARS=[2025,2026,2027]; // năm chọn được ở dashboard
+const REQ=['📊 MASTER','HÀNH VI SP']; // sheet 📅 DAILY T{m} là tuỳ chọn, tự dò trong file
+let G={}, curY=null, curM=null, charts={}, bhSec='FB';
 
 const num=v=>{if(typeof v==='number')return v;if(v==null||v==='')return null;
   const s=String(v).replace(/[^\d,.-]/g,'');const c=s.replace(/[.,](?=\d{3}(\D|$))/g,'').replace(',','.');
@@ -136,9 +139,9 @@ function parseWb(buf,label){
   const wb=XLSX.read(new Uint8Array(buf),{type:'array'});
   const missing=REQ.filter(s=>!wb.Sheets[s]);
   if(missing.length){alert('File thiếu sheet: '+missing.join(', '));return}
-  for(const s of REQ)G[s]=XLSX.utils.sheet_to_json(wb.Sheets[s],{header:1});
+  for(const s of wb.SheetNames)G[s]=XLSX.utils.sheet_to_json(wb.Sheets[s],{header:1}); // nạp mọi sheet — sheet 📅 DAILY T{m} tuỳ file có bao nhiêu tháng
   const now=new Date();
-  if(curM==null){const m=now.getMonth()+1;curM=(now.getFullYear()===YEAR&&DAILY_MONTHS.includes(m))?m:7;}
+  if(curY==null){curY=YEARS.includes(now.getFullYear())?now.getFullYear():YEARS[YEARS.length-1];curM=now.getMonth()+1;}
   document.getElementById('setup').classList.add('hide');
   document.getElementById('app').classList.remove('hide');
   document.getElementById('src').innerHTML=label;
@@ -215,7 +218,7 @@ function master(){
 const daysOfLbl=l=>{const m=+l.split('/')[0].slice(1),y=2000+ +l.split('/')[1];return new Date(y,m,0).getDate()};
 // tháng đang xem ở các mục MASTER = tháng chọn trên tab; nếu chưa có trong MASTER thì dùng tháng khép sổ gần nhất
 function viewCtx(){
-  let vi=MS.labels.indexOf('T'+curM+'/26');
+  let vi=MS.labels.indexOf('T'+curM+'/'+String(curY).slice(2));
   if(vi<0)vi=MS.liDone;
   const run=MS.running&&MS.running.idx===vi?MS.running:null;
   return {vi,run};
@@ -255,10 +258,10 @@ function dailyData(m){
 // Tổng hợp tuần: TỰ TÍNH từ daily, theo TUẦN LỊCH Thứ 2 → CN.
 // Tuần vắt sang tháng khác chỉ tính phần ngày NẰM TRONG tháng này;
 // target tuần = target tháng × (số ngày của tuần trong tháng ÷ tổng ngày tháng).
-function weeklyCalc(m,tgt,days,nd,el){
+function weeklyCalc(y,m,tgt,days,nd,el){
   const ranges=[];let a=1;
   while(a<=nd){
-    const dow=new Date(YEAR,m-1,a).getDay();      // 0=CN, 1=T2...
+    const dow=new Date(y,m-1,a).getDay();      // 0=CN, 1=T2...
     const b=Math.min(a+(dow===0?0:7-dow),nd);     // chạy tới CN gần nhất hoặc hết tháng
     ranges.push([a,b]);a=b+1;
   }
@@ -275,10 +278,10 @@ function weeklyCalc(m,tgt,days,nd,el){
     return w;
   });
 }
-function timeProgress(m){
-  const nd=new Date(YEAR,m,0).getDate();
+function timeProgress(y,m){
+  const nd=new Date(y,m,0).getDate();
   const today=new Date();today.setHours(0,0,0,0);
-  let el=Math.floor((today-new Date(YEAR,m-1,1))/864e5);
+  let el=Math.floor((today-new Date(y,m-1,1))/864e5);
   el=Math.max(0,Math.min(el,nd));
   return {tp:el/nd,el,nd};
 }
@@ -307,15 +310,29 @@ function renderAll(){renderMonthSection();renderHealth();renderSegments();render
 function card(label,val,note,c){return `<div class="card ${c||'n'}"><div class="lbl">${label}</div><div class="val">${val}</div><div class="note">${note||''}</div></div>`}
 function mkChart(id,cfg){const el=document.getElementById(id);if(!el)return;if(charts[id])charts[id].destroy();charts[id]=new Chart(el,cfg)}
 
+function refreshPicker(){
+  const selY=document.getElementById('selYear'), selM=document.getElementById('selMonth');
+  if(!selY.options.length){
+    selY.innerHTML=YEARS.map(y=>`<option value="${y}">${y}</option>`).join('');
+    selM.innerHTML=Array.from({length:12},(_,i)=>i+1).map(m=>`<option value="${m}">Tháng ${m}</option>`).join('');
+    const onPick=()=>{curY=+selY.value;curM=+selM.value;renderMonthSection();renderInsights();renderHealth();renderSegments();renderDetail()};
+    selY.onchange=onPick; selM.onchange=onPick;
+  }
+  selY.value=curY; selM.value=curM;
+}
 function renderMonthSection(){
   if(!MS)MS=master();
-  document.getElementById('tabs').innerHTML=DAILY_MONTHS.map(m=>`<div class="tab ${m===curM?'on':''}" onclick="curM=${m};renderMonthSection();renderInsights();renderHealth();renderSegments();renderDetail()">T${m}</div>`).join('');
+  refreshPicker();
+  const hasDaily=!!G['📅 DAILY T'+curM];
+  const noteEl=document.getElementById('noDailyNote');
+  if(hasDaily){noteEl.classList.add('hide');noteEl.textContent='';}
+  else{noteEl.classList.remove('hide');noteEl.textContent=`ℹ️ Chưa có sheet 📅 DAILY T${curM} trong file — không có số theo ngày/tuần cho tháng này, nhưng vẫn xem được số tổng hợp ở mục Sức khỏe KH / Chi tiết tháng bên dưới nếu MASTER đã có T${curM}/${String(curY).slice(2)}.`;}
   const {tgt,s,cum,days}=dailyData(curM);
-  const {tp,el,nd}=timeProgress(curM);
+  const {tp,el,nd}=timeProgress(curY,curM);
   const pc=(a,t)=>t>0?a/t:null, pace=x=>x==null||tp<=0?null:x/tp;
   const pTot=pc(s.total,tgt.total),pFB=pc(s.fb,tgt.fb),pST=pc(s.store,tgt.store);
   const aovFB=s.donFB>0?s.fb/s.donFB:null, aovST=s.donST>0?s.store/s.donST:null;
-  let html=card('DT Tổng T'+curM,fmtM(s.total),pctf(pTot)+' / '+fmtM(tgt.total)+' · '+lbl(pace(pTot)),cls(pace(pTot)))
+  let html=card('DT Tổng T'+curM+'/'+String(curY).slice(2),fmtM(s.total),pctf(pTot)+' / '+fmtM(tgt.total)+' · '+lbl(pace(pTot)),cls(pace(pTot)))
     +card('DT Facebook',fmtM(s.fb),pctf(pFB)+' target · '+lbl(pace(pFB)),cls(pace(pFB)))
     +card('DT Store',fmtM(s.store),pctf(pST)+' target · '+lbl(pace(pST)),cls(pace(pST)))
     +card('AOV FB',aovFB?fmt(aovFB/1000)+'K':'–','target ≥'+fmt(tgt.aovFB/1000)+'K',aovFB==null?'n':aovFB>=tgt.aovFB?'g':'r')
@@ -323,7 +340,7 @@ function renderMonthSection(){
     +(()=>{ // CMT+IB & CR lấy từ MASTER (số chốt tháng) — không dựa daily
       const {labels:ml,get:mg}=MS;
       const cmtS=mg('FB','CMT + Inbox'), donS=mg('FB','Đơn hàng FB');
-      let mi=ml.indexOf('T'+curM+'/26');
+      let mi=ml.indexOf('T'+curM+'/'+String(curY).slice(2));
       if(mi<0||cmtS[mi]==null||cmtS[mi]===0){mi=-1;for(let i=cmtS.length-1;i>=0;i--)if(cmtS[i]!=null&&cmtS[i]!==0){mi=i;break}}
       const cmtV=mi>=0?cmtS[mi]:null, donV=mi>=0?donS[mi]:null, crV=cmtV&&donV?donV/cmtV:null;
       const src=mi>=0?('MASTER '+ml[mi]):'chưa có số MASTER';
@@ -337,7 +354,7 @@ function renderMonthSection(){
   const sb=[['619 NDC',s.ndc,tgt.ndc],['02 Phố Huế',s.ph,tgt.ph],['88 NGT',s.ngt,tgt.ngt]];
   document.getElementById('stores').innerHTML='<table class="t"><tr><th>Cửa hàng</th><th>Lũy kế</th><th>Target</th><th>%HT</th><th>Pace</th></tr>'+
     sb.map(([n,a,t])=>{const p=pc(a,t),g=pace(p);return `<tr><td>${n}</td><td>${fmtM(a)}</td><td>${fmtM(t)}</td><td><b>${pctf(p)}</b></td><td class="${g==null?'flat':g>=1?'upb':g>=.85?'flat':'downb'}">${g==null?'–':pctf(g,0)}</td></tr>`}).join('')+'</table>';
-  const wk=weeklyCalc(curM,tgt,days,nd,el);
+  const wk=weeklyCalc(curY,curM,tgt,days,nd,el);
   document.getElementById('weeks').innerHTML=
     '<table class="t"><tr><th>Tuần</th><th>DT FB</th><th>AOV FB</th><th>DT Store</th><th>DT Total</th><th>%T FB</th><th>%T Store</th></tr>'+
     wk.map(w=>{
@@ -641,7 +658,7 @@ function renderInsights(){
   const {vi,run}=viewCtx();
   const li=vi, pi=vi-1, yi=vi-12;
   const {tgt,s}=dailyData(curM);
-  const {tp,el,nd}=timeProgress(curM);
+  const {tp,el,nd}=timeProgress(curY,curM);
   // --- Forecast run-rate ---
   let fc='';
   if(el>0&&s.total>0){
@@ -691,7 +708,7 @@ function renderInsights(){
   };
   const yoys=[yoyTxt('DT Tổng',get('TOT','DT Tổng'),true),yoyTxt('Retention FB',get('FB','% Retention FB'),false),yoyTxt('CLV FB 12T',get('FB','CLV 12 tháng rolling'),false)].filter(Boolean);
   document.getElementById('insights').innerHTML=
-    `<div class="panel"><h3>📈 Dự báo tháng ${curM} (run-rate)</h3><ul style="margin-left:18px;font-size:13px;line-height:1.7">${fc}</ul></div>`
+    `<div class="panel"><h3>📈 Dự báo T${curM}/${String(curY).slice(2)} (run-rate)</h3><ul style="margin-left:18px;font-size:13px;line-height:1.7">${fc}</ul></div>`
     +`<div class="panel"><h3>🧭 Đánh giá ${labels[li]}${run?' — lũy kế '+run.el+' ngày, so cùng nhịp (≈)':''}</h3><ul style="margin-left:18px;font-size:13px;line-height:1.7">`
     +(ups.length?`<li>✅ Điểm sáng: ${ups.map(chTxt).join(' · ')}</li>`:'')
     +(downs.length?`<li>⚠️ Đi xuống: ${downs.map(chTxt).join(' · ')}</li>`:'')
