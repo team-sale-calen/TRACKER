@@ -767,27 +767,29 @@ function detailRows(get){
 function renderDetail(){
   const {labels,get}=MS;
   const {vi,run}=viewCtx();
-  const li=vi, pi=vi-1;
+  const li=vi, pi=vi-1, yi=vi-12;
   document.getElementById('dtitle').textContent='🔍 Chi tiết '+labels[li]
-    +(run?` — lũy kế ${run.el} ngày (cột ${pi>=0?labels[pi]:''} quy ≈ cùng nhịp với chỉ số cộng dồn)`:' (so với '+(pi>=0?labels[pi]:'—')+')');
+    +(run?` — lũy kế ${run.el} ngày (các cột so sánh quy ≈ cùng nhịp với chỉ số cộng dồn)`:'');
   const rows=detailRows(get);
   const fv=(v,f)=>v==null?'–':f==='m'?fmtM(v):f==='p'?pctf(v):f==='d'?fmtD(v):fmt(v);
-  let out=`<tr><th>Chỉ số</th><th>${pi>=0?labels[pi]:'—'}${run?' (≈)':''}</th><th>${labels[li]}</th><th>Δ so tháng trước</th></tr>`;
+  const deltaCell=(cur,ref,good)=>{
+    if(cur==null||ref==null||ref===0)return ['–','flat'];
+    const ch=(cur-ref)/Math.abs(ref);
+    return [(ch>0?'▲ +':ch<0?'▼ ':'')+(ch*100).toFixed(1)+'%',ch*good>0.002?'upb':ch*good<-0.002?'downb':'flat'];
+  };
+  let out=`<tr><th>Chỉ số</th><th>${pi>=0?labels[pi]:'—'}${run?' (≈)':''}</th><th>${labels[li]}</th><th>Δ so tháng trước</th><th>${yi>=0?labels[yi]:'—'}${run?' (≈)':''}</th><th>Δ so cùng kỳ năm ngoái</th></tr>`;
   let pendingGrp=null;
   for(const r of rows){
     if(r[0]==='grp'){pendingGrp=r[1];continue}
     const [name,ser,f,good,cum]=r;
     const cur=ser[li];
     const prev=adjPrev(ser,li,run,cum,1);
-    if(cur==null&&prev==null)continue; // chỉ số trống → bỏ qua
-    if(pendingGrp){out+=`<tr><td class="grp" colspan="4">${pendingGrp}</td></tr>`;pendingGrp=null}
-    let d='–',c='flat';
-    if(cur!=null&&prev!=null&&prev!==0){
-      const ch=(cur-prev)/Math.abs(prev);
-      c=ch*good>0.002?'upb':ch*good<-0.002?'downb':'flat';
-      d=(ch>0?'▲ +':ch<0?'▼ ':'')+(ch*100).toFixed(1)+'%';
-    }
-    out+=`<tr><td>${name}</td><td>${run&&cum?'≈ ':''}${fv(prev,f)}</td><td><b>${fv(cur,f)}</b></td><td class="${c}">${d}</td></tr>`;
+    const yoy=adjPrev(ser,li,run,cum,12);
+    if(cur==null&&prev==null&&yoy==null)continue; // chỉ số trống → bỏ qua
+    if(pendingGrp){out+=`<tr><td class="grp" colspan="6">${pendingGrp}</td></tr>`;pendingGrp=null}
+    const [dm,cm]=deltaCell(cur,prev,good);
+    const [dy,cy]=deltaCell(cur,yoy,good);
+    out+=`<tr><td>${name}</td><td>${run&&cum?'≈ ':''}${fv(prev,f)}</td><td><b>${fv(cur,f)}</b></td><td class="${cm}">${dm}</td><td>${run&&cum?'≈ ':''}${fv(yoy,f)}</td><td class="${cy}">${dy}</td></tr>`;
   }
   document.getElementById('detail').innerHTML=out;
 }
@@ -892,18 +894,18 @@ function buildMarkdown(){
   // 2) Chi tiết tháng đang chọn trên dashboard
   L.push('## 2. Chi tiết tháng đang xem — '+(MS.labels[vi]||''));
   L.push('');
-  const pi=vi-1;
+  const pi=vi-1, yi2=vi-12;
   const dRows=detailRows(MS.get);
   const dOut=[];let grp=null;
   dRows.forEach(r=>{
     if(r[0]==='grp'){grp=r[1];return}
     const [name,ser,f,good,cum]=r;
-    const cur=ser[vi], prev=adjPrev(ser,vi,run,cum,1);
-    if(cur==null&&prev==null)return;
+    const cur=ser[vi], prev=adjPrev(ser,vi,run,cum,1), yoy2=adjPrev(ser,vi,run,cum,12);
+    if(cur==null&&prev==null&&yoy2==null)return;
     const fv=(v)=>v==null?'':f==='m'?fmtM(v):f==='p'?pctf(v):f==='d'?fmtD(v):fmt(v);
-    dOut.push([grp||'',name,fv(prev),fv(cur)]);
+    dOut.push([grp||'',name,fv(prev),fv(cur),fv(yoy2)]);
   });
-  L.push(mdTable(['Nhóm','Chỉ số',(pi>=0?MS.labels[pi]:'—')+(run?' (≈)':''),MS.labels[vi]],dOut));
+  L.push(mdTable(['Nhóm','Chỉ số',(pi>=0?MS.labels[pi]:'—')+(run?' (≈)':''),MS.labels[vi],(yi2>=0?MS.labels[yi2]:'—')+(run?' (≈)':'')],dOut));
   // 3) Khách hàng mới & cũ theo kênh
   L.push('## 3. Khách hàng mới & Khách hàng cũ theo kênh (theo tháng, ước tính DT = SL × AOV phân khúc)');
   L.push('');
